@@ -13,12 +13,14 @@ import pandas as pd
 from llama_index import VectorStoreIndex, ServiceContext
 from llama_index.schema import TextNode
 
+from BCEmbedding.tools.eval_rag.llamaindex_using_custom_llm import llm
+
 # LLM
 from llama_index.llms import OpenAI
 
 # Embeddings
 from llama_index.embeddings import OpenAIEmbedding, HuggingFaceEmbedding, CohereEmbedding
-from langchain.embeddings import VoyageEmbeddings, GooglePalmEmbeddings
+# from langchain.embeddings import VoyageEmbeddings, GooglePalmEmbeddings
 
 # Retrievers
 from llama_index.retrievers import VectorIndexRetriever
@@ -34,10 +36,13 @@ from llama_index.evaluation import RetrieverEvaluator
 from utils import qa_generate_prompt_tmpl_en, extract_data_from_pdf, display_results, CustomRetriever
 
 from BCEmbedding.utils import logger_wrapper
-logger = logger_wrapper('tools.eval_rag.eval_llamaindex_reproduce')
+
+# logger = logger_wrapper('tools.eval_rag.eval_llamaindex_reproduce')
+from loguru import logger
 
 import nest_asyncio
 import asyncio
+
 nest_asyncio.apply()
 
 doc_string = '''
@@ -50,28 +55,34 @@ For each query, MRR evaluates the system's accuracy by looking at the rank of th
 
 # Define embeddings and rerankers setups to test
 EMBEDDINGS = {
-    "OpenAI-ada-2": {'model': OpenAIEmbedding, 'args': {'api_key': os.environ.get('OPENAI_API_KEY'), 'api_base': os.environ.get('OPENAI_BASE_URL')}},
-    "bge-large-en": {'model': HuggingFaceEmbedding, 'args': {'model_name': 'BAAI/bge-large-en', 'device': 'cuda:0'}},
-    "bge-base-en-v1.5": {'model': HuggingFaceEmbedding, 'args': {'model_name': 'BAAI/bge-base-en-v1.5', 'device': 'cuda:0'}},
-    "bge-large-en-v1.5": {'model': HuggingFaceEmbedding, 'args': {'model_name': 'BAAI/bge-large-en-v1.5', 'device': 'cuda:0'}},
-    "llm-embedder": {'model': HuggingFaceEmbedding, 'args': {'model_name': 'BAAI/llm-embedder', 'device': 'cuda:0'}},
-    "CohereV2-en": {'model': CohereEmbedding, 'args': {'cohere_api_key': os.environ.get('COHERE_APPKEY'), 'model_name': 'embed-english-v2.0'}},
-    "CohereV3-en": {'model': CohereEmbedding, 'args': {'cohere_api_key': os.environ.get('COHERE_APPKEY'), 'model_name': 'embed-english-v3.0', 'input_type': 'search_document'}},
-    "JinaAI-v2-Small-en": {'model': HuggingFaceEmbedding, 'args': {'model_name': 'jinaai/jina-embeddings-v2-small-en', 'pooling': 'mean', 'trust_remote_code': True, 'device': 'cuda:0'}},
-    "JinaAI-v2-Base-en": {'model': HuggingFaceEmbedding, 'args': {'model_name': 'jinaai/jina-embeddings-v2-base-en', 'pooling': 'mean', 'trust_remote_code': True, 'device': 'cuda:0'}},
-    "gte-large-en": {'model': HuggingFaceEmbedding, 'args': {'model_name': 'thenlper/gte-large', 'pooling': 'mean', 'max_length':512, 'device': 'cuda:0'}},
-    "e5-large-v2-en": {'model': HuggingFaceEmbedding, 'args': {'model_name': 'intfloat/e5-large-v2', 'pooling': 'mean', 'query_instruction': 'query:', 'text_instruction': 'passage:', 'device': 'cuda:0'}},
-    "e5-base-multilingual": {'model': HuggingFaceEmbedding, 'args': {'model_name': 'intfloat/multilingual-e5-base', 'pooling': 'mean', 'max_length': 512, 'query_instruction': 'query:', 'text_instruction': 'passage:', 'device': 'cuda:0'}},
-    "e5-large-multilingual": {'model': HuggingFaceEmbedding, 'args': {'model_name': 'intfloat/multilingual-e5-large', 'pooling': 'mean', 'max_length': 512, 'query_instruction': 'query:', 'text_instruction': 'passage:', 'device': 'cuda:0'}},
-    "bce-embedding-base_v1": {'model': HuggingFaceEmbedding, 'args': {'model_name': 'maidalun1020/bce-embedding-base_v1', 'max_length':512, 'device': 'cuda:0'}},
+    # "OpenAI-ada-2": {'model': OpenAIEmbedding, 'args': {'api_key': os.environ.get('OPENAI_API_KEY'), 'api_base': os.environ.get('OPENAI_BASE_URL')}},
+    # "bge-large-en": {'model': HuggingFaceEmbedding, 'args': {'model_name': 'BAAI/bge-large-en', 'device': 'cuda:0'}},
+    # "bge-base-en-v1.5": {'model': HuggingFaceEmbedding, 'args': {'model_name': 'BAAI/bge-base-en-v1.5', 'device': 'cuda:0'}},
+    # "bge-large-en-v1.5": {'model': HuggingFaceEmbedding, 'args': {'model_name': 'BAAI/bge-large-en-v1.5', 'device': 'cuda:0'}},
+    "bge-large-zh-v1.5": {'model': HuggingFaceEmbedding, 'args': {'model_name': '/home/pen/data/bge-large-zh-v1.5', 'device': 'cuda:0'}},
+    # "llm-embedder": {'model': HuggingFaceEmbedding, 'args': {'model_name': 'BAAI/llm-embedder', 'device': 'cuda:0'}},
+    # "CohereV2-en": {'model': CohereEmbedding, 'args': {'cohere_api_key': os.environ.get('COHERE_APPKEY'), 'model_name': 'embed-english-v2.0'}},
+    # "CohereV3-en": {'model': CohereEmbedding, 'args': {'cohere_api_key': os.environ.get('COHERE_APPKEY'), 'model_name': 'embed-english-v3.0', 'input_type': 'search_document'}},
+    # "JinaAI-v2-Small-en": {'model': HuggingFaceEmbedding, 'args': {'model_name': 'jinaai/jina-embeddings-v2-small-en', 'pooling': 'mean', 'trust_remote_code': True, 'device': 'cuda:0'}},
+    # "JinaAI-v2-Base-en": {'model': HuggingFaceEmbedding, 'args': {'model_name': 'jinaai/jina-embeddings-v2-base-en', 'pooling': 'mean', 'trust_remote_code': True, 'device': 'cuda:0'}},
+    "gte-large-en": {'model': HuggingFaceEmbedding, 'args': {'model_name': '/home/pen/data/thenlper_gte-large-zh', 'pooling': 'mean', 'max_length': 512, 'device': 'cuda:0'}},
+    # "e5-large-v2-en": {'model': HuggingFaceEmbedding,
+    #                    'args': {'model_name': 'intfloat/e5-large-v2', 'pooling': 'mean', 'query_instruction': 'query:', 'text_instruction': 'passage:', 'device': 'cuda:0'}},
+    # "e5-base-multilingual": {'model': HuggingFaceEmbedding,
+    #                          'args': {'model_name': 'intfloat/multilingual-e5-base', 'pooling': 'mean', 'max_length': 512, 'query_instruction': 'query:', 'text_instruction': 'passage:',
+    #                                   'device': 'cuda:0'}},
+    # "e5-large-multilingual": {'model': HuggingFaceEmbedding,
+    #                           'args': {'model_name': 'intfloat/multilingual-e5-large', 'pooling': 'mean', 'max_length': 512, 'query_instruction': 'query:', 'text_instruction': 'passage:',
+    #                                    'device': 'cuda:0'}},
+    "bce-embedding-base_v1": {'model': HuggingFaceEmbedding, 'args': {'model_name': '/home/pen/data/bce-embedding-base_v1', 'max_length': 512, 'device': 'cuda:0'}},
 }
 
 RERANKERS = {
-    "WithoutReranker": None,
-    "CohereRerank": {'model': CohereRerank, 'args': {'api_key': os.environ.get('COHERE_APPKEY'), 'top_n': 5}},
-    "bge-reranker-base": {'model': SentenceTransformerRerank, 'args': {'model': "BAAI/bge-reranker-base", 'top_n': 5, 'device': 'cuda:1'}},
-    "bge-reranker-large": {'model': SentenceTransformerRerank, 'args': {'model': "BAAI/bge-reranker-large", 'top_n': 5, 'device': 'cuda:1'}},
-    "bce-reranker-base_v1": {'model': SentenceTransformerRerank, 'args': {'model': "maidalun1020/bce-reranker-base_v1", 'top_n': 5, 'device': 'cuda:1'}},
+    # "WithoutReranker": None,
+    # "CohereRerank": {'model': CohereRerank, 'args': {'api_key': os.environ.get('COHERE_APPKEY'), 'top_n': 5}},
+    # "bge-reranker-base": {'model': SentenceTransformerRerank, 'args': {'model': "BAAI/bge-reranker-base", 'top_n': 5, 'device': 'cuda:1'}},
+    # "bge-reranker-large": {'model': SentenceTransformerRerank, 'args': {'model': "BAAI/bge-reranker-large", 'top_n': 5, 'device': 'cuda:1'}},
+    "bce-reranker-base_v1": {'model': SentenceTransformerRerank, 'args': {'model': "/home/pen/data/bce-reranker-base_v1", 'top_n': 5, 'device': 'cuda:1'}},
 }
 
 logger.info(f"""Evaluate with metrics in RAG framework:
@@ -80,18 +91,20 @@ logger.info(f"""Evaluate with metrics in RAG framework:
 The evaluation processes {len(EMBEDDINGS)} embeddings and {len(RERANKERS)} rerankers:
 embeddings: {list(EMBEDDINGS.keys())}
 rerankers: {list(RERANKERS.keys())}
-{40*'=='}
+{40 * '=='}
 """)
+
 
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--eval_pdfs_dir', default=osp.join(osp.dirname(__file__), 'eval_pdfs'), type=str, help="pdfs to eval")
-    parser.add_argument('--llm', default='gpt-3.5-turbo-0613', type=str, help="llm model name used in llama_index")
+    parser.add_argument('--llm', default='chinese-llama-alpaca-2', type=str, help="llm model name used in llama_index")
     parser.add_argument('--chunk_size', default=512, type=int, help="chunk size for splitting context of pdfs into chunks.")
     parser.add_argument('--split', default=[0, 36], type=int, nargs='+', help="choice page range of pdfs")
     parser.add_argument('--metrics', default=["mrr", "hit_rate"], type=str, nargs='+', help="eval metrics")
     parser.add_argument('--force', default=False, action='store_true', help="force to eval")
     return parser.parse_args()
+
 
 if __name__ == '__main__':
     args = get_args()
@@ -103,13 +116,14 @@ if __name__ == '__main__':
     os.makedirs(eval_pdfs_cache_dir, exist_ok=True)
     os.makedirs(eval_pdfs_results_dir, exist_ok=True)
 
-    llm = OpenAI(model=args.llm, api_key=os.environ.get('OPENAI_API_KEY'), api_base=os.environ.get('OPENAI_BASE_URL'))
+    # llm = OpenAI(model="chinese-llama-alpaca-2", api_key=os.environ.get('OPENAI_API_KEY'), api_base=os.environ.get('OPENAI_BASE_URL'))
 
-    pdf = 'Comp_en_llama2.pdf'
-    logger.info(40*'==' + f"\nEval {pdf} ...")
+    # pdf = 'Comp_en_llama2.pdf'
+    pdf = 'Comp_zh_0.pdf' # 测试中文的
+    logger.info(40 * '==' + f"\nEval {pdf} ...")
     pdf_path = osp.join(eval_pdfs_dir, pdf)
-    pdf_cache = osp.join(eval_pdfs_cache_dir, pdf+'.json')
-    pdf_eval_result = osp.join(eval_pdfs_results_dir, pdf+'.csv')
+    pdf_cache = osp.join(eval_pdfs_cache_dir, pdf + '.json')
+    pdf_eval_result = osp.join(eval_pdfs_results_dir, pdf + '.csv')
 
     if osp.exists(pdf_cache):
         logger.info('load preproc rag dataset from local')
@@ -118,10 +132,10 @@ if __name__ == '__main__':
         # load nodes and qa_dataset
         nodes = [TextNode.from_dict(node) for node in eval_data_cache['nodes']]
         qa_dataset = EmbeddingQAFinetuneDataset(
-                        queries=eval_data_cache['queries'],
-                        corpus=eval_data_cache['corpus'],
-                        relevant_docs=eval_data_cache['relevant_docs']
-                    )
+            queries=eval_data_cache['queries'],
+            corpus=eval_data_cache['corpus'],
+            relevant_docs=eval_data_cache['relevant_docs']
+        )
     else:
         logger.info('produce rag dataset from pdf')
         nodes, qa_dataset = extract_data_from_pdf(pdf_path, llm=llm, chunk_size=args.chunk_size, split=args.split, qa_generate_prompt_tmpl=qa_generate_prompt_tmpl_en)
@@ -156,8 +170,8 @@ if __name__ == '__main__':
                     logger.info(f"Skip! Embedding Model: {embed_name} and Reranker: {rerank_name} have been evaluated!")
                     continue
 
-            logger.info('\n'+ 40*'-*' + f"\nRunning Evaluation for Embedding Model: {embed_name} and Reranker: {rerank_name}")
-            
+            logger.info('\n' + 40 * '-*' + f"\nRunning Evaluation for Embedding Model: {embed_name} and Reranker: {rerank_name}")
+
             reranker = None if reranker_setup is None else reranker_setup['model'](**reranker_setup['args'])
             custom_retriever = CustomRetriever(vector_retriever, reranker)
             retriever_evaluator = RetrieverEvaluator.from_metric_names(
@@ -173,6 +187,7 @@ if __name__ == '__main__':
             results_df.to_csv(pdf_eval_result, index=False)
 
     # Display final results
-    logger.info(40*'-*' + '\nfinal summary:')
+    logger.info(40 * '-*' + '\nfinal summary:')
     logger.info(results_df)
+    logger.info(pdf_eval_result)
     results_df.to_csv(pdf_eval_result, index=False)
